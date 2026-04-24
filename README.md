@@ -72,7 +72,6 @@ O Telegram exige que o bot receba atualizações através de uma URL pública (H
    WEBHOOK_URL=[https://abcd-12-34.ngrok-free.dev](https://abcd-12-34.ngrok-free.dev)
    ```
 4. Após atualizar a URL, suba o container novamente com `docker-compose up -d`.
-```
 
 ## Como executar e testar o Chatbot
 
