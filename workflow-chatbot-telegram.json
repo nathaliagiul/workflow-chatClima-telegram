@@ -1,0 +1,400 @@
+{
+  "name": "workflow-chatbot-telegram",
+  "nodes": [
+    {
+      "parameters": {
+        "updates": [
+          "message"
+        ],
+        "additionalFields": {}
+      },
+      "id": "3d09fd0f-0203-4a6e-b0c7-62d41b62b590",
+      "name": "Telegram Trigger",
+      "type": "n8n-nodes-base.telegramTrigger",
+      "typeVersion": 1,
+      "position": [
+        -1776,
+        -128
+      ],
+      "webhookId": "6c9598e6-6c4d-4e3f-8f36-24d3c94f73a5",
+      "credentials": {
+        "telegramApi": {
+          "id": "",
+          "name": "TELEGRAM_BOT_TOKEN"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst text = $json.queue || '';\nconst chatId = $('Telegram Trigger').item.json.message.chat.id;\n\nif (!chatId) {\n  return {\n    valido: false,\n    mensagemErro: \"❌ Não foi possível identificar o chat.\"\n  };\n}\n\nconst partes = text.split(',');\n\n// 1. Pega e normaliza a cidade\nlet cidade = partes[0] ? partes[0].trim() : '';\ncidade = cidade.normalize('NFD').replace(/[\\u0300-\\u036f]/g, '').toLowerCase();\n\n// 2. Pega e normaliza a UF\nlet uf = partes.length > 1 ? partes[1].trim() : '';\nuf = uf.normalize('NFD').replace(/[\\u0300-\\u036f]/g, '').toLowerCase();\n\n// 3. Verifica se a UF NÃO foi informada\nif (!uf) {\n  return { \n    valido: false, \n    chatId: chatId, \n    mensagemErro: \"⚠️ Formato inválido. Por favor, envie a mensagem no padrão: Cidade,Estado,País (Exemplo: São Paulo,SP,BR).\"\n  };\n}\n\n// 4. Se a UF existir, monta a queue com o 'br' no final\nlet queue = `${cidade},${uf},br`;\n\nreturn { \n  valido: true, \n  queue: queue, \n  chatId: chatId \n};"
+      },
+      "id": "6b404be5-7037-47f5-82ec-b5cd724e2940",
+      "name": "Captura e Formatação",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1376,
+        -128
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://api.openweathermap.org/data/2.5/weather",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "q",
+              "value": "={{ $json.queue }}"
+            },
+            {
+              "name": "units",
+              "value": "metric"
+            },
+            {
+              "name": "lang",
+              "value": "pt_br"
+            },
+            {
+              "name": "appid",
+              "value": "={{ $env.OPENWEATHER_API_KEY }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "c196252f-bf0e-4e6c-9281-844024654d38",
+      "name": "OpenWeather API",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        -944,
+        -256
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ parseInt($json.cod) === 200 }}",
+              "value2": true
+            }
+          ],
+          "string": [
+            {
+              "value1": "={{ $json.main && $json.main.temp }}",
+              "operation": "isNotEmpty"
+            }
+          ]
+        }
+      },
+      "id": "b321bba8-e4ed-4b47-b9bd-deab3a643aa4",
+      "name": "Validação de Resposta",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        -704,
+        -128
+      ]
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $('Captura e Formatação').item.json.chatId }}",
+        "text": "❌ Cidade não encontrada. Use o formato Cidade,UF,BR (ex.: São Paulo,SP,BR).",
+        "additionalFields": {}
+      },
+      "id": "09b2e0b1-7145-4172-b246-347646f09779",
+      "name": "Telegram: Erro",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1,
+      "position": [
+        -528,
+        48
+      ],
+      "webhookId": "ae58e455-5677-41e0-90c0-e95c49494d28",
+      "credentials": {
+        "telegramApi": {
+          "id": "",
+          "name": "TELEGRAM_BOT_TOKEN"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "value": "models/gemini-2.5-flash",
+          "mode": "list"
+        },
+        "messages": {
+          "values": [
+            {
+              "content": "==Você é um assistente meteorológico. Eu tenho os seguintes dados: \nBusca do usuário: {{ $('Telegram Trigger').item.json.message.text }}\nCidade retornada: {{ $('OpenWeather API').item.json.name }}\nEstado: {{ $('Telegram Trigger').item.json.message.text.split(',')[1] ? $('Telegram Trigger').item.json.message.text.split(',')[1].trim() : '' }}\nTemperatura: {{ Math.round($('OpenWeather API').item.json.main.temp) }} graus.\n\nEscreva uma mensagem informando o clima, usando um emoji. Cite a cidade E o estado na resposta (ex: \"Em São Bento (PB), a temperatura é...\").\n\nRetorne o resultado ESTRITAMENTE em formato JSON. \nO JSON deve ter este exato formato:\n{\"message\": \"sua mensagem aqui\", \"ok\": true}"
+            }
+          ]
+        },
+        "builtInTools": {},
+        "options": {
+          "temperature": 0.1
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.googleGemini",
+      "typeVersion": 1.1,
+      "position": [
+        -544,
+        -256
+      ],
+      "id": "26633fef-9587-4fd2-940e-681bba87a170",
+      "name": "Message a model",
+      "credentials": {
+        "googlePalmApi": {
+          "id": "a6eTgXFyCmOGYisb",
+          "name": "Google Gemini(PaLM) Api account"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst data = $('OpenWeather API').first().json;\nconst cidade = data.name;\nconst temperatura = Math.round(data.main.temp);\n\nconst textoOriginal = $('Telegram Trigger').first().json.message.text;\nconst partesTexto = textoOriginal.split(',');\nconst estadoUF = partesTexto.length > 1 ? partesTexto[1].trim().toUpperCase() : '';\nconst estadoTexto = estadoUF ? ` (${estadoUF})` : '';\n\n\nconst mensagem_fallback = `🌤️ A temperatura em ${cidade}${estadoTexto} é de ${temperatura}°C.`;\n\nreturn {\n  message: mensagem_fallback,\n  ok: true\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -160,
+        -176
+      ],
+      "id": "6ddfea38-f502-49d6-9d4a-9919524a8db3",
+      "name": "Fallback"
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $('Captura e Formatação').item.json.chatId }}",
+        "text": "={{ \n  $json.message \n    ? $json.message \n    : (() => {\n        try {\n          return JSON.parse($json.content.parts[0].text.replace(/```json/gi, '').replace(/```/g, '')).message;\n        } catch(e) {\n          return \"⚠️ Erro ao processar resposta da IA.\";\n        }\n      })()\n}}",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        112,
+        -272
+      ],
+      "id": "a0746cee-8914-40b2-bc53-3374f9597836",
+      "name": "Clima atual",
+      "webhookId": "edde8198-b573-4bba-b862-886a841ea9c5",
+      "credentials": {
+        "telegramApi": {
+          "id": "",
+          "name": "TELEGRAM_BOT_TOKEN"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "adbcb640-5298-4c3f-abd5-5f8e94476f2f",
+              "leftValue": "={{ $json.valido }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        -1184,
+        -128
+      ],
+      "id": "b5d2aabf-8205-430e-8d77-5a11206733bf",
+      "name": "Valida Formato"
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $('Telegram Trigger').item.json.message.chat.id }}",
+        "text": "={{ $json.mensagemErro }}",
+        "additionalFields": {}
+      },
+      "id": "92461d0b-51b2-4971-95a1-f9ebab731e7d",
+      "name": "Telegram: Erro1",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1,
+      "position": [
+        -944,
+        32
+      ],
+      "webhookId": "ae58e455-5677-41e0-90c0-e95c49494d28",
+      "credentials": {
+        "telegramApi": {
+          "id": "",
+          "name": "TELEGRAM_BOT_TOKEN"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "8f2aeee6-b776-454a-b723-d0f5015bca24",
+              "name": "queue",
+              "value": "={{$json.message.text}}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -1584,
+        -128
+      ],
+      "id": "bb7b37b5-ca9e-4e79-8e16-cf8bc487c9ec",
+      "name": "Set"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Telegram Trigger": {
+      "main": [
+        [
+          {
+            "node": "Set",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Captura e Formatação": {
+      "main": [
+        [
+          {
+            "node": "Valida Formato",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenWeather API": {
+      "main": [
+        [
+          {
+            "node": "Validação de Resposta",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validação de Resposta": {
+      "main": [
+        [
+          {
+            "node": "Message a model",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Telegram: Erro",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Message a model": {
+      "main": [
+        [
+          {
+            "node": "Clima atual",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Fallback",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fallback": {
+      "main": [
+        [
+          {
+            "node": "Clima atual",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Valida Formato": {
+      "main": [
+        [
+          {
+            "node": "OpenWeather API",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Telegram: Erro1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set": {
+      "main": [
+        [
+          {
+            "node": "Captura e Formatação",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "availableInMCP": false
+  },
+  "versionId": "e8b2941f-ab73-47ee-a7af-df13bc0e85ba",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "bc6338c64b789b12ac1e9ea623222cd3512c605e62934b43086375d4a71e36ef"
+  },
+  "id": "Y6vHcLgospski_03j161q",
+  "tags": []
+}
